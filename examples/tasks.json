@@ -1,0 +1,101 @@
+{
+  "tasks": [
+    {
+      "name": "高清剪辑",
+      "input": "video1.mp4",
+      "output": "output/hd_clip.mp4",
+      "codec": "libx264",
+      "audio_codec": "aac",
+      "bitrate": "8000k",
+      "actions": [
+        {
+          "type": "trim",
+          "start": 5,
+          "end": 120
+        },
+        {
+          "type": "resize",
+          "width": 1920,
+          "height": 1080,
+          "maintain_ratio": true
+        },
+        {
+          "type": "fps",
+          "fps": 30
+        }
+      ]
+    },
+    {
+      "name": "移动端适配",
+      "input": "video2.mp4",
+      "output": "output/mobile_version.mp4",
+      "codec": "libx264",
+      "audio_codec": "aac",
+      "bitrate": "2000k",
+      "actions": [
+        {
+          "type": "trim",
+          "start": 10,
+          "end": 180
+        },
+        {
+          "type": "resize",
+          "width": 720,
+          "height": 1280,
+          "maintain_ratio": true
+        },
+        {
+          "type": "watermark",
+          "watermark_path": "watermark.png",
+          "position": "bottom_right",
+          "opacity": 0.5
+        }
+      ]
+    },
+    {
+      "name": "加速视频",
+      "input": "video3.mp4",
+      "output": "output/fast_version.mp4",
+      "codec": "libx264",
+      "audio_codec": "aac",
+      "bitrate": "5000k",
+      "actions": [
+        {
+          "type": "trim",
+          "start": 0,
+          "end": 300
+        },
+        {
+          "type": "speed",
+          "speed": 1.5
+        },
+        {
+          "type": "resize",
+          "width": 1280,
+          "height": 720,
+          "maintain_ratio": true
+        }
+      ]
+    },
+    {
+      "name": "竖屏转横屏",
+      "input": "video4.mp4",
+      "output": "output/landscape.mp4",
+      "codec": "libx264",
+      "audio_codec": "aac",
+      "bitrate": "5000k",
+      "actions": [
+        {
+          "type": "rotate",
+          "angle": 90
+        },
+        {
+          "type": "resize",
+          "width": 1920,
+          "height": 1080,
+          "maintain_ratio": true
+        }
+      ]
+    }
+  ]
+}
