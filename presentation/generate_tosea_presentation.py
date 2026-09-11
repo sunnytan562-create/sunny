@@ -1,7 +1,9 @@
 from pathlib import Path
 from math import cos, sin, pi
+import argparse
+from typing import Optional
 
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw, ImageFilter, ImageOps
 from pptx import Presentation
 from pptx.dml.color import RGBColor
 from pptx.enum.shapes import MSO_AUTO_SHAPE_TYPE, MSO_CONNECTOR_TYPE
@@ -12,6 +14,16 @@ ROOT = Path(__file__).resolve().parent
 ASSETS = ROOT / "assets"
 OUTPUT = ROOT / "泰卦外贸团队系统.pptx"
 BG_PATH = ASSETS / "tosea_deep_blue_bg.png"
+BG_SIZE = (1600, 900)
+GRID_STEP = 80
+ARC_SPECS = ((560, 90), (700, 45), (860, 20))
+TOP_LEFT_POLYGON = [(0, 0), (500, 0), (260, 240)]
+BOTTOM_RIGHT_POLYGON = [(1600, 900), (1180, 900), (1600, 640)]
+TOSEA_FRAME = (1000, 90, 1470, 170)
+GLOW_ELLIPSES = (
+    ((1180, 40, 1510, 370), (26, 148, 255, 90)),
+    ((40, 620, 420, 980), (19, 109, 215, 70)),
+)
 
 SLIDE_W = Inches(13.333)
 SLIDE_H = Inches(7.5)
@@ -29,53 +41,55 @@ def emu(inches: float) -> int:
     return Inches(inches)
 
 
-def ensure_background() -> None:
-    ASSETS.mkdir(parents=True, exist_ok=True)
-    if BG_PATH.exists():
+def ensure_background(bg_path: Path = BG_PATH) -> None:
+    bg_path.parent.mkdir(parents=True, exist_ok=True)
+    if bg_path.exists():
         return
-    width, height = 1600, 900
-    img = Image.new("RGB", (width, height), "#081a39")
-    px = img.load()
-    for y in range(height):
-        for x in range(width):
-            vx = x / width
-            vy = y / height
-            r = int(6 + 8 * vx + 5 * vy)
-            g = int(22 + 30 * (1 - vy) + 20 * vx)
-            b = int(54 + 70 * (1 - vy) + 50 * vx)
-            px[x, y] = (r, g, b)
+    width, height = BG_SIZE
+    vertical = ImageOps.colorize(
+        Image.linear_gradient("L").resize((width, height)),
+        black="#081a39",
+        white="#144f97",
+    )
+    horizontal = ImageOps.colorize(
+        Image.linear_gradient("L").rotate(90, expand=True).resize((width, height)),
+        black="#081a39",
+        white="#0d325e",
+    )
+    img = Image.blend(vertical, horizontal, 0.42)
 
     overlay = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
 
-    for step in range(0, width, 80):
+    for step in range(0, width, GRID_STEP):
         draw.line((step, 0, step, height), fill=(64, 128, 255, 20), width=1)
-    for step in range(0, height, 80):
+    for step in range(0, height, GRID_STEP):
         draw.line((0, step, width, step), fill=(64, 128, 255, 18), width=1)
 
-    for radius, alpha in [(560, 90), (700, 45), (860, 20)]:
+    for radius, alpha in ARC_SPECS:
         draw.arc((width - radius - 120, -140, width + radius - 120, height + 140),
                  start=200, end=342, fill=(59, 171, 255, alpha), width=3)
 
-    draw.polygon([(0, 0), (500, 0), (260, 240)], fill=(12, 91, 190, 30))
-    draw.polygon([(width, height), (width - 420, height), (width, height - 260)], fill=(14, 72, 164, 50))
-    draw.rounded_rectangle((1000, 90, 1470, 170), radius=18, outline=(111, 255, 233, 120), width=2)
+    draw.polygon(TOP_LEFT_POLYGON, fill=(12, 91, 190, 30))
+    draw.polygon(BOTTOM_RIGHT_POLYGON, fill=(14, 72, 164, 50))
+    draw.rounded_rectangle(TOSEA_FRAME, radius=18, outline=(111, 255, 233, 120), width=2)
     draw.text((1045, 114), "TOSEA", fill=(180, 238, 255, 120))
 
     glow = Image.new("RGBA", (width, height), (0, 0, 0, 0))
     gdraw = ImageDraw.Draw(glow)
-    gdraw.ellipse((1180, 40, 1510, 370), fill=(26, 148, 255, 90))
-    gdraw.ellipse((40, 620, 420, 980), fill=(19, 109, 215, 70))
+    for bounds, fill in GLOW_ELLIPSES:
+        gdraw.ellipse(bounds, fill=fill)
     glow = glow.filter(ImageFilter.GaussianBlur(40))
 
     img = Image.alpha_composite(img.convert("RGBA"), glow)
     img = Image.alpha_composite(img, overlay)
-    img.convert("RGB").save(BG_PATH)
+    img.convert("RGB").save(bg_path)
 
 
 
-def set_bg(slide):
-    slide.shapes.add_picture(str(BG_PATH), 0, 0, width=SLIDE_W, height=SLIDE_H)
+def set_bg(slide, bg_path: Path = BG_PATH):
+    ensure_background(bg_path)
+    slide.shapes.add_picture(str(bg_path), 0, 0, width=SLIDE_W, height=SLIDE_H)
     top_bar = slide.shapes.add_shape(MSO_AUTO_SHAPE_TYPE.RECTANGLE, 0, 0, SLIDE_W, emu(0.14))
     top_bar.fill.solid()
     top_bar.fill.fore_color.rgb = ACCENT
@@ -90,6 +104,18 @@ def add_footer(slide, right_text="TOSEA 泰卦外贸"):
     p.font.size = Pt(10)
     p.font.color.rgb = MUTED
     p.alignment = PP_ALIGN.RIGHT
+
+
+def set_shape_text(shape, text, size, color=WHITE, bold=False, align=PP_ALIGN.CENTER):
+    tf = shape.text_frame
+    tf.clear()
+    p = tf.paragraphs[0]
+    p.text = text
+    p.font.size = Pt(size)
+    p.font.bold = bold
+    p.font.color.rgb = color
+    p.alignment = align
+    tf.vertical_anchor = MSO_ANCHOR.MIDDLE
 
 
 def add_title(slide, title, subtitle=None, section=None):
@@ -168,20 +194,14 @@ def add_card(slide, x, y, w, h, title, lines, title_size=18):
     return card
 
 
-def slide_cover(prs):
+def slide_cover(prs, bg_path: Path = BG_PATH):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    set_bg(slide)
+    set_bg(slide, bg_path)
     ribbon = slide.shapes.add_shape(MSO_AUTO_SHAPE_TYPE.ROUNDED_RECTANGLE, emu(0.95), emu(0.76), emu(1.7), emu(0.34))
     ribbon.fill.solid()
     ribbon.fill.fore_color.rgb = RGBColor(10, 57, 115)
     ribbon.line.color.rgb = ACCENT_2
-    tf = ribbon.text_frame
-    tf.text = "TEAM SYSTEM"
-    tf.paragraphs[0].font.size = Pt(12)
-    tf.paragraphs[0].font.bold = True
-    tf.paragraphs[0].font.color.rgb = ACCENT_2
-    tf.paragraphs[0].alignment = PP_ALIGN.CENTER
-    tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+    set_shape_text(ribbon, "TEAM SYSTEM", 12, ACCENT_2, True)
 
     title = slide.shapes.add_textbox(emu(0.95), emu(1.7), emu(8.7), emu(1.6))
     tf = title.text_frame
@@ -228,9 +248,9 @@ def slide_cover(prs):
     add_footer(slide)
 
 
-def slide_overview(prs):
+def slide_overview(prs, bg_path: Path = BG_PATH):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    set_bg(slide)
+    set_bg(slide, bg_path)
     add_title(slide, "核心管理板块", "围绕组织、制度、职责、流程与激励，构建外贸团队协同闭环")
     cards = [
         ("01 团队", ["明确组织结构", "形成高效协作关系"]),
@@ -246,9 +266,9 @@ def slide_overview(prs):
     add_footer(slide)
 
 
-def slide_team(prs):
+def slide_team(prs, bg_path: Path = BG_PATH):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    set_bg(slide)
+    set_bg(slide, bg_path)
     add_title(slide, "团队", "以清晰组织分工支撑快速响应与稳定交付", section="01")
 
     nodes = [
@@ -264,13 +284,7 @@ def slide_team(prs):
         shape.fill.solid()
         shape.fill.fore_color.rgb = CARD_FILL
         shape.line.color.rgb = CARD_LINE
-        tf = shape.text_frame
-        tf.text = text
-        tf.paragraphs[0].alignment = PP_ALIGN.CENTER
-        tf.paragraphs[0].font.color.rgb = WHITE
-        tf.paragraphs[0].font.bold = True
-        tf.paragraphs[0].font.size = Pt(14)
-        tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+        set_shape_text(shape, text, 14, WHITE, True)
 
     connectors = [
         ((2.05, 2.37), (2.03, 3.0)),
@@ -304,9 +318,9 @@ def slide_team(prs):
     add_footer(slide)
 
 
-def slide_policy(prs):
+def slide_policy(prs, bg_path: Path = BG_PATH):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    set_bg(slide)
+    set_bg(slide, bg_path)
     add_title(slide, "团队制度", "通过统一标准减少内耗，保障协同效率", section="02")
     items = [
         ("考勤与请假", "明确出勤要求、请假审批与异常反馈机制"),
@@ -341,9 +355,9 @@ def slide_policy(prs):
     add_footer(slide)
 
 
-def slide_roles(prs):
+def slide_roles(prs, bg_path: Path = BG_PATH):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    set_bg(slide)
+    set_bg(slide, bg_path)
     add_title(slide, "岗位职责", "责任到人、协同有序，确保每个岗位都能稳定产出", section="03")
     headers = [(1.05, 1.72, 2.1, "岗位"), (3.25, 1.72, 8.9, "核心职责")]
     for x, y, w, text in headers:
@@ -351,13 +365,7 @@ def slide_roles(prs):
         h.fill.solid()
         h.fill.fore_color.rgb = RGBColor(15, 69, 136)
         h.line.color.rgb = CARD_LINE
-        tf = h.text_frame
-        tf.text = text
-        tf.paragraphs[0].font.bold = True
-        tf.paragraphs[0].font.size = Pt(14)
-        tf.paragraphs[0].font.color.rgb = WHITE
-        tf.paragraphs[0].alignment = PP_ALIGN.CENTER
-        tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+        set_shape_text(h, text, 14, WHITE, True)
     rows = [
         ("业务员", "负责客户开发、询盘跟进、报价推进与成交转化"),
         ("跟单员", "负责订单执行、节点跟踪、资料对接与内部协调"),
@@ -371,12 +379,7 @@ def slide_roles(prs):
         left.fill.solid()
         left.fill.fore_color.rgb = CARD_FILL
         left.line.color.rgb = CARD_LINE
-        left.text_frame.text = job
-        left.text_frame.paragraphs[0].font.size = Pt(14)
-        left.text_frame.paragraphs[0].font.bold = True
-        left.text_frame.paragraphs[0].font.color.rgb = WHITE
-        left.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
-        left.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE
+        set_shape_text(left, job, 14, WHITE, True)
         right = slide.shapes.add_shape(MSO_AUTO_SHAPE_TYPE.ROUNDED_RECTANGLE, emu(3.25), emu(y), emu(8.9), emu(0.72))
         right.fill.solid()
         right.fill.fore_color.rgb = RGBColor(9, 33, 73)
@@ -390,9 +393,9 @@ def slide_roles(prs):
     add_footer(slide)
 
 
-def slide_workflow(prs):
+def slide_workflow(prs, bg_path: Path = BG_PATH):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    set_bg(slide)
+    set_bg(slide, bg_path)
     add_title(slide, "工作流程", "把日常执行动作标准化，确保任务推进可视、可控、可复盘", section="04")
     steps = ["接收任务", "客户信息", "跟进沟通", "提交报价", "内部协同", "结果反馈", "归档总结"]
     x = 0.72
@@ -405,17 +408,8 @@ def slide_workflow(prs):
         num.fill.solid()
         num.fill.fore_color.rgb = ACCENT
         num.line.fill.background()
-        num.text_frame.text = str(idx + 1)
-        num.text_frame.paragraphs[0].font.size = Pt(11)
-        num.text_frame.paragraphs[0].font.bold = True
-        num.text_frame.paragraphs[0].font.color.rgb = RGBColor(7, 29, 67)
-        num.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
-        node.text_frame.text = step
-        node.text_frame.paragraphs[0].font.size = Pt(13)
-        node.text_frame.paragraphs[0].font.bold = True
-        node.text_frame.paragraphs[0].font.color.rgb = WHITE
-        node.text_frame.paragraphs[0].alignment = PP_ALIGN.CENTER
-        node.text_frame.vertical_anchor = MSO_ANCHOR.MIDDLE
+        set_shape_text(num, str(idx + 1), 11, RGBColor(7, 29, 67), True)
+        set_shape_text(node, step, 13, WHITE, True)
         if idx < len(steps) - 1:
             arrow = slide.shapes.add_connector(MSO_CONNECTOR_TYPE.STRAIGHT, emu(x + 1.6), emu(3.22), emu(x + 1.88), emu(3.22))
             arrow.line.color.rgb = ACCENT_2
@@ -428,9 +422,9 @@ def slide_workflow(prs):
     add_footer(slide)
 
 
-def slide_business(prs):
+def slide_business(prs, bg_path: Path = BG_PATH):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    set_bg(slide)
+    set_bg(slide, bg_path)
     add_title(slide, "业务流程", "贯穿客户开发到售后复盘的完整成交链路", section="05")
     center_x, center_y = 6.65, 3.75
     radius_x, radius_y = 4.2, 1.95
@@ -454,20 +448,13 @@ def slide_business(prs):
     core.fill.solid()
     core.fill.fore_color.rgb = RGBColor(10, 57, 115)
     core.line.color.rgb = ACCENT_2
-    tf = core.text_frame
-    tf.text = "业务增长闭环\n标准化推进"
-    for p in tf.paragraphs:
-        p.alignment = PP_ALIGN.CENTER
-        p.font.color.rgb = WHITE
-        p.font.bold = True
-        p.font.size = Pt(16)
-    tf.vertical_anchor = MSO_ANCHOR.MIDDLE
+    set_shape_text(core, "业务增长闭环\n标准化推进", 16, WHITE, True)
     add_footer(slide)
 
 
-def slide_perf(prs):
+def slide_perf(prs, bg_path: Path = BG_PATH):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    set_bg(slide)
+    set_bg(slide, bg_path)
     add_title(slide, "薪酬绩效", "以科学激励机制驱动目标达成与团队成长", section="06")
     add_card(slide, 0.98, 1.8, 5.3, 4.6, "薪酬结构", [
         "基础薪资：保障岗位稳定产出与团队基本配置",
@@ -495,9 +482,9 @@ def slide_perf(prs):
     add_footer(slide)
 
 
-def slide_closing(prs):
+def slide_closing(prs, bg_path: Path = BG_PATH):
     slide = prs.slides.add_slide(prs.slide_layouts[6])
-    set_bg(slide)
+    set_bg(slide, bg_path)
     ring = slide.shapes.add_shape(MSO_AUTO_SHAPE_TYPE.OVAL, emu(9.3), emu(1.08), emu(2.2), emu(2.2))
     ring.fill.background()
     ring.line.color.rgb = ACCENT_2
@@ -537,24 +524,36 @@ def slide_closing(prs):
 
 
 
-def build_presentation():
-    """Create the shared background asset if needed and write the PPTX deck to OUTPUT."""
-    ensure_background()
+def build_presentation(output_path: Optional[Path] = None, background_path: Optional[Path] = None):
+    """Create the shared background asset if needed and write the PPTX deck to the resolved target path."""
+    background = Path(background_path) if background_path else BG_PATH
+    if not background.is_absolute():
+        background = ROOT / background
+    ensure_background(background)
     prs = Presentation()
     prs.slide_width = SLIDE_W
     prs.slide_height = SLIDE_H
-    slide_cover(prs)
-    slide_overview(prs)
-    slide_team(prs)
-    slide_policy(prs)
-    slide_roles(prs)
-    slide_workflow(prs)
-    slide_business(prs)
-    slide_perf(prs)
-    slide_closing(prs)
-    prs.save(OUTPUT)
+    slide_cover(prs, background)
+    slide_overview(prs, background)
+    slide_team(prs, background)
+    slide_policy(prs, background)
+    slide_roles(prs, background)
+    slide_workflow(prs, background)
+    slide_business(prs, background)
+    slide_perf(prs, background)
+    slide_closing(prs, background)
+    target = Path(output_path) if output_path else OUTPUT
+    if not target.is_absolute():
+        target = ROOT / target
+    target.parent.mkdir(parents=True, exist_ok=True)
+    prs.save(target)
+    return target
 
 
 if __name__ == "__main__":
-    build_presentation()
-    print(f"Created {OUTPUT}")
+    parser = argparse.ArgumentParser(description="Generate the 泰卦外贸团队系统 PowerPoint deck.")
+    parser.add_argument("--output", default=str(OUTPUT), help="Optional output PPTX path")
+    parser.add_argument("--background", default=str(BG_PATH), help="Optional background asset path")
+    args = parser.parse_args()
+    output = build_presentation(Path(args.output), Path(args.background))
+    print(f"Created {output}")
