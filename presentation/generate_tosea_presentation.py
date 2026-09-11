@@ -31,6 +31,8 @@ def emu(inches: float) -> int:
 
 def ensure_background() -> None:
     ASSETS.mkdir(parents=True, exist_ok=True)
+    if BG_PATH.exists():
+        return
     width, height = 1600, 900
     img = Image.new("RGB", (width, height), "#081a39")
     px = img.load()
@@ -135,19 +137,17 @@ def add_bullet_list(slide, items, x, y, w, h, font_size=20, accent=False):
 
 
 def add_card(slide, x, y, w, h, title, lines, title_size=18):
+    shadow = slide.shapes.add_shape(MSO_AUTO_SHAPE_TYPE.ROUNDED_RECTANGLE, emu(x + 0.05), emu(y + 0.06), emu(w), emu(h))
+    shadow.fill.solid()
+    shadow.fill.fore_color.rgb = RGBColor(0, 0, 0)
+    shadow.fill.transparency = 0.82
+    shadow.line.fill.background()
     card = slide.shapes.add_shape(MSO_AUTO_SHAPE_TYPE.ROUNDED_RECTANGLE, emu(x), emu(y), emu(w), emu(h))
     card.fill.solid()
     card.fill.fore_color.rgb = CARD_FILL
     card.fill.transparency = 0.12
     card.line.color.rgb = CARD_LINE
     card.line.width = Pt(1.5)
-    shadow = slide.shapes.add_shape(MSO_AUTO_SHAPE_TYPE.ROUNDED_RECTANGLE, emu(x + 0.05), emu(y + 0.06), emu(w), emu(h))
-    shadow.fill.solid()
-    shadow.fill.fore_color.rgb = RGBColor(0, 0, 0)
-    shadow.fill.transparency = 0.82
-    shadow.line.fill.background()
-    slide.shapes._spTree.remove(shadow._element)
-    slide.shapes._spTree.insert(2, shadow._element)
 
     title_box = slide.shapes.add_textbox(emu(x + 0.22), emu(y + 0.18), emu(w - 0.44), emu(0.32))
     p = title_box.text_frame.paragraphs[0]
@@ -538,6 +538,7 @@ def slide_closing(prs):
 
 
 def build_presentation():
+    """Create the shared background asset if needed and write the PPTX deck to OUTPUT."""
     ensure_background()
     prs = Presentation()
     prs.slide_width = SLIDE_W
